@@ -1,0 +1,2113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Smart Attendance QR System</title>
+
+<!-- Tailwind CSS for responsive mobile-first styling -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- External Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- Google Font: Inter -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+    * {
+        box-sizing: border-box;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+        background: #f1f5f9;
+        color: #1e293b;
+        margin: 0;
+        padding-bottom: env(safe-area-inset-bottom);
+        overflow-x: hidden;
+    }
+
+    /* Prevent iOS Safari auto-zoom on input focus (must be >= 16px) */
+    input, select, textarea {
+        font-size: 16px !important;
+        min-height: 46px;
+    }
+
+    button {
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+
+    /* Critical Mobile Camera Video Fixes for iOS Safari & Android Chrome */
+    #reader, #adminReader {
+        width: 100% !important;
+        max-width: 100% !important;
+        border-radius: 16px;
+        overflow: hidden;
+        background: #0f172a;
+        position: relative;
+        min-height: 260px;
+    }
+
+    #reader video, #adminReader video {
+        width: 100% !important;
+        height: auto !important;
+        max-height: 62vh !important;
+        object-fit: cover !important;
+        border-radius: 16px;
+        display: block !important;
+    }
+
+    /* Hide ugly default html5-qrcode file input / branding elements while keeping scan region clean */
+    #reader img[alt="Info icon"], #adminReader img[alt="Info icon"] {
+        display: none !important;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 999px;
+    }
+
+    /* Safe Area Spacing for Bottom Mobile Nav */
+    .pb-safe-nav {
+        padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+    }
+    .bottom-nav-safe {
+        padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+    }
+
+    /* Print optimization for Student QR Badge */
+    @media print {
+        body * {
+            visibility: hidden;
+        }
+        #printableBadgeArea, #printableBadgeArea * {
+            visibility: visible;
+        }
+        #printableBadgeArea {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: none !important;
+            border: 2px solid #1e293b !important;
+        }
+    }
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+
+<!-- TOAST / MESSAGE NOTIFICATION BANNER (Replaces native alert()) -->
+<div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-[92%] max-w-md flex flex-col gap-2 pointer-events-none"></div>
+
+<!-- CUSTOM CONFIRMATION / EDIT MODAL (Replaces native confirm() & prompt()) -->
+<div id="customModal" class="fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-100 transform transition-all">
+        <h3 id="modalTitle" class="text-lg font-bold text-slate-900 mb-2">Confirm Action</h3>
+        <p id="modalBody" class="text-sm text-slate-600 mb-4"></p>
+        <div id="modalExtraContent" class="mb-4 hidden"></div>
+        <div class="flex gap-3 justify-end">
+            <button id="modalCancelBtn" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm transition">Cancel</button>
+            <button id="modalConfirmBtn" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm transition">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<!-- STUDENT QR MODAL (Admin View Badge) -->
+<div id="qrPreviewModal" class="fixed inset-0 z-[90] bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center border border-slate-100">
+        <div class="flex justify-between items-center mb-3">
+            <span class="text-xs font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">Student QR Badge</span>
+            <button onclick="closeQrPreviewModal()" class="text-slate-400 hover:text-slate-700 p-1 min-h-0">✕</button>
+        </div>
+        <h3 id="modalQrStudentName" class="text-xl font-bold text-slate-900"></h3>
+        <p id="modalQrStudentMeta" class="text-sm text-slate-500 mb-4"></p>
+        <div id="modalQrBox" class="flex justify-center items-center p-4 bg-slate-50 rounded-2xl border border-dashed border-slate-300 mx-auto w-fit mb-4"></div>
+        <div class="flex gap-2">
+            <button onclick="downloadCanvasQR('modalQrBox', 'student-badge-qr.png')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl py-2.5 text-sm transition">⬇ Save Image</button>
+            <button onclick="closeQrPreviewModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl py-2.5 text-sm transition">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== LOGIN SCREEN ==================== -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950">
+    <div class="bg-white w-full max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-100">
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 bg-blue-600 text-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg shadow-blue-600/30 text-3xl">
+                📲
+            </div>
+            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">SMART ATTENDANCE</h1>
+            <p class="text-sm text-slate-500 mt-1">Mobile QR Code Student Attendance System</p>
+        </div>
+
+        <div id="qrLoginNotice" class="hidden mb-4 p-3.5 rounded-xl bg-blue-50 border-l-4 border-blue-600 text-blue-800 text-sm font-medium">
+            📍 Classroom QR link detected! Sign in below to automatically log your attendance.
+        </div>
+
+        <div class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Login As</label>
+                <select id="loginRole" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 outline-none transition">
+                    <option value="student">👨‍🎓 Student</option>
+                    <option value="admin">🛡️ Administrator / Teacher</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Student ID / Username</label>
+                <input id="loginID" type="text" autocomplete="username" placeholder="e.g. 2026-0001 or admin" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 outline-none transition">
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">Password</label>
+                <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••••" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 outline-none transition">
+            </div>
+
+            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/25 transition">
+                SIGN IN
+            </button>
+
+            <button onclick="showRegistration()" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl shadow-md transition">
+                CREATE STUDENT ACCOUNT
+            </button>
+        </div>
+
+        <div class="mt-6 pt-4 border-t border-slate-100 text-center text-xs text-slate-500 space-y-1">
+            <p>Admin Demo: <span class="font-bold text-slate-700">admin</span> / <span class="font-bold text-slate-700">admin123</span></p>
+            <p>Student Demo: <span class="font-bold text-slate-700">2026-0001</span> / <span class="font-bold text-slate-700">123</span></p>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== REGISTRATION SCREEN ==================== -->
+<div id="registrationScreen" class="min-h-screen hidden items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950">
+    <div class="bg-white w-full max-w-md p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-100">
+        <div class="text-center mb-5">
+            <h1 class="text-2xl font-extrabold text-slate-900">Student Registration</h1>
+            <p class="text-sm text-slate-500 mt-1">Register to get your personal QR badge</p>
+        </div>
+
+        <div class="space-y-3.5">
+            <input id="regName" type="text" placeholder="Full Name (e.g. Maria Clara)" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 outline-none">
+            <input id="regID" type="text" placeholder="Student ID (e.g. 2026-0002)" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 outline-none">
+
+            <select id="regGrade" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 outline-none">
+                <option value="">Select Grade Level</option>
+                <option>Grade 7</option>
+                <option>Grade 8</option>
+                <option>Grade 9</option>
+                <option>Grade 10</option>
+                <option>Grade 11</option>
+                <option>Grade 12</option>
+                <option>College / University</option>
+            </select>
+
+            <input id="regSection" type="text" placeholder="Section (e.g. Rizal)" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 outline-none">
+            <input id="regPassword" type="password" placeholder="Create Password" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:border-blue-600 outline-none">
+
+            <button onclick="registerStudent()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/25 transition mt-2">
+                REGISTER ACCOUNT
+            </button>
+
+            <button onclick="backLogin()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-3 rounded-xl transition">
+                BACK TO LOGIN
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MAIN APPLICATION ==================== -->
+<div id="application" class="hidden min-h-screen flex flex-col lg:flex-row">
+
+    <!-- MOBILE DRAWER BACKDROP -->
+    <div id="drawerBackdrop" onclick="closeMobileDrawer()" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-40 hidden lg:hidden transition-opacity"></div>
+
+    <!-- SIDEBAR / SLIDE-OUT MOBILE DRAWER -->
+    <aside id="sidebarDrawer" class="fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform -translate-x-full lg:translate-x-0 lg:static lg:inset-auto transition-transform duration-300 ease-in-out flex flex-col h-full lg:min-h-screen shadow-2xl lg:shadow-none">
+        <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+                <span class="text-2xl">📚</span>
+                <div>
+                    <h2 class="text-base font-extrabold text-sky-400 tracking-wide leading-tight">SMART ATTENDANCE</h2>
+                    <p id="sidebarSchoolName" class="text-[11px] text-slate-400 truncate max-w-[160px]">Smart Academy</p>
+                </div>
+            </div>
+            <button onclick="closeMobileDrawer()" class="lg:hidden text-slate-400 hover:text-white p-2 rounded-lg min-h-0">
+                ✕
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-3 space-y-1">
+            <!-- ADMIN MENU -->
+            <div id="adminMenu" class="space-y-1">
+                <button data-page="dashboard" onclick="showPage('dashboard',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📊</span> Dashboard</button>
+                <button data-page="adminScannerPage" onclick="showPage('adminScannerPage',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📷</span> Scan Student Badge</button>
+                <button data-page="qrAttendance" onclick="showPage('qrAttendance',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📢</span> Broadcast Class QR</button>
+                <button data-page="liveAttendance" onclick="showPage('liveAttendance',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>🔴</span> Live Attendance</button>
+                <button data-page="students" onclick="showPage('students',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>👨‍🎓</span> Student List & QRs</button>
+                <button data-page="classes" onclick="showPage('classes',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>🏫</span> Classes & Sections</button>
+                <button data-page="records" onclick="showPage('records',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📋</span> Daily Records</button>
+                <button data-page="monthly" onclick="showPage('monthly',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📅</span> Monthly Records</button>
+                <button data-page="reports" onclick="showPage('reports',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📈</span> Reports</button>
+                <button data-page="lateStudents" onclick="showPage('lateStudents',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>⏰</span> Late Students</button>
+                <button data-page="notifications" onclick="showPage('notifications',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>🔔</span> Notifications</button>
+                <button data-page="logs" onclick="showPage('logs',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📝</span> Activity Logs</button>
+                <button data-page="settings" onclick="showPage('settings',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>⚙️</span> Settings</button>
+                <button data-page="backup" onclick="showPage('backup',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>💾</span> Backup & Restore</button>
+            </div>
+
+            <!-- STUDENT MENU -->
+            <div id="studentMenu" class="hidden space-y-1">
+                <button data-page="studentHome" onclick="showPage('studentHome',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>🏠</span> My Dashboard</button>
+                <button data-page="scanQR" onclick="showPage('scanQR',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📷</span> Scan Class QR</button>
+                <button data-page="myQR" onclick="showPage('myQR',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📱</span> My QR Badge</button>
+                <button data-page="myRecords" onclick="showPage('myRecords',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>📋</span> My Attendance</button>
+                <button data-page="myNotifications" onclick="showPage('myNotifications',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>🔔</span> Notifications</button>
+                <button data-page="myProfile" onclick="showPage('myProfile',this)" class="nav-btn w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-left text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition"><span>👤</span> My Profile</button>
+            </div>
+        </div>
+
+        <div class="p-4 border-t border-slate-800">
+            <button onclick="logout()" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl text-sm transition flex items-center justify-center gap-2">
+                <span>🚪</span> LOGOUT
+            </button>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <div class="flex-1 min-w-0 flex flex-col">
+        <!-- STICKY TOP HEADER -->
+        <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-2 shadow-xs">
+            <div class="flex items-center gap-3 min-w-0">
+                <button onclick="openMobileDrawer()" aria-label="Open menu" class="lg:hidden p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 min-h-0 flex items-center justify-center">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                </button>
+                <div class="min-w-0">
+                    <h1 id="pageTitle" class="text-lg sm:text-xl font-extrabold text-slate-900 truncate">Dashboard</h1>
+                    <p id="clock" class="text-[11px] sm:text-xs text-slate-500 truncate"></p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 shrink-0">
+                <span id="currentUser" class="text-xs sm:text-sm font-bold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-full truncate max-w-[130px] sm:max-w-[200px]"></span>
+            </div>
+        </header>
+
+        <!-- PAGE CONTAINER -->
+        <main class="flex-1 p-4 sm:p-6 pb-safe-nav lg:pb-8 max-w-7xl w-full mx-auto">
+
+            <!-- HTTPS / SECURE CONTEXT WARNING BANNER (Shown automatically if camera APIs are blocked by insecure HTTP/file://) -->
+            <div id="insecureContextBanner" class="hidden mb-4 p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-sm shadow-xs">
+                <div class="flex items-start gap-3">
+                    <span class="text-xl shrink-0">⚠️</span>
+                    <div>
+                        <p class="font-bold">Camera Access Notice (Non-HTTPS Connection)</p>
+                        <p class="text-xs sm:text-sm mt-1 text-amber-800">Mobile browsers require <b>HTTPS</b> (or localhost) to stream live camera video. If the live camera doesn't open, use the <b>"📷 Scan from Photo / Camera Capture"</b> button inside the scanner—it works on all phones even without HTTPS!</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ==================== ADMIN DASHBOARD ==================== -->
+            <section id="dashboard" class="page space-y-5">
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Registered</p>
+                        <h2 id="totalStudents" class="text-2xl sm:text-3xl font-extrabold text-blue-600 mt-1">0</h2>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Present Today</p>
+                        <h2 id="totalPresent" class="text-2xl sm:text-3xl font-extrabold text-emerald-600 mt-1">0</h2>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Late Today</p>
+                        <h2 id="totalLate" class="text-2xl sm:text-3xl font-extrabold text-amber-600 mt-1">0</h2>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Absent Today</p>
+                        <h2 id="totalAbsent" class="text-2xl sm:text-3xl font-extrabold text-rose-600 mt-1">0</h2>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100 col-span-2 sm:col-span-1">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400">Attendance Rate</p>
+                        <h2 id="attendancePercent" class="text-2xl sm:text-3xl font-extrabold text-indigo-600 mt-1">0%</h2>
+                    </div>
+                </div>
+
+                <!-- Quick Mobile Action Shortcuts for Admin -->
+                <div class="grid grid-cols-2 gap-3 lg:hidden">
+                    <button onclick="showPage('adminScannerPage')" class="bg-blue-600 text-white font-bold p-3.5 rounded-2xl shadow-sm flex items-center justify-center gap-2 text-sm">
+                        <span>📷</span> Scan Student QR
+                    </button>
+                    <button onclick="showPage('qrAttendance')" class="bg-emerald-600 text-white font-bold p-3.5 rounded-2xl shadow-sm flex items-center justify-center gap-2 text-sm">
+                        <span>📢</span> Broadcast Class QR
+                    </button>
+                </div>
+
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <h3 class="text-base font-bold text-slate-800 mb-3">Today's Attendance Summary</h3>
+                    <div class="h-56 sm:h-64 w-full">
+                        <canvas id="attendanceChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <h3 class="text-base font-bold text-slate-800 mb-3">Recent Attendance Logs</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[520px]">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <th class="p-3 rounded-tl-lg">Student</th>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">Date</th>
+                                    <th class="p-3">Time</th>
+                                    <th class="p-3 rounded-tr-lg">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentActivities" class="divide-y divide-slate-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== ADMIN SCANNER PAGE (MOBILE OPTIMIZED) ==================== -->
+            <section id="adminScannerPage" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 max-w-lg mx-auto">
+                    <div class="text-center mb-4">
+                        <h2 class="text-lg sm:text-xl font-extrabold text-slate-900">Scan Student ID Badges</h2>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Point your phone's rear camera at a student's personal QR code.</p>
+                    </div>
+
+                    <!-- Camera Selector & Torch Controls -->
+                    <div class="space-y-3 mb-4">
+                        <div class="flex gap-2">
+                            <select id="adminCameraSelect" onchange="switchScannerCamera('admin')" class="flex-1 px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-sm">
+                                <option value="environment">🎥 Rear Camera (Default)</option>
+                                <option value="user">🤳 Front Camera</option>
+                            </select>
+                            <button id="adminTorchBtn" onclick="toggleTorch('admin')" class="hidden px-3.5 py-2.5 rounded-xl bg-amber-100 text-amber-800 font-bold text-sm shrink-0" title="Toggle Flashlight">
+                                🔦 Flash
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2.5">
+                            <button id="startAdminScanBtn" onclick="startAdminScanner()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 text-sm">
+                                <span>▶</span> Start Camera
+                            </button>
+                            <button onclick="stopAdminScanner()" class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 text-sm">
+                                <span>⏹</span> Stop Camera
+                            </button>
+                        </div>
+
+                        <!-- Native Phone Camera / Photo Upload Fallback (Works everywhere even without HTTPS!) -->
+                        <div class="pt-1">
+                            <input type="file" id="adminQrFileInput" accept="image/*" capture="environment" class="hidden" onchange="scanQrFromFile(event, 'admin')">
+                            <button onclick="document.getElementById('adminQrFileInput').click()" class="w-full bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 transition">
+                                <span>📸</span> Take Photo / Upload QR Image
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Live Video Feed Container -->
+                    <div id="adminReader" class="shadow-inner flex items-center justify-center text-slate-400 text-sm">
+                        <span class="p-8 text-center">Camera preview will appear here</span>
+                    </div>
+
+                    <!-- Scan Feedback Banner -->
+                    <div id="adminScanResult" class="mt-4"></div>
+
+                    <!-- Manual ID Quick Check-In Fallback -->
+                    <div class="mt-5 pt-4 border-t border-slate-100">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Manual ID Check-In</p>
+                        <div class="flex gap-2">
+                            <input id="manualAdminStudentId" type="text" placeholder="Enter Student ID (e.g. 2026-0001)" class="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                            <button onclick="manualAdminCheckIn()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 rounded-xl text-sm shrink-0">Check In</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== BROADCAST QR ATTENDANCE ==================== -->
+            <section id="qrAttendance" class="page hidden">
+                <div class="bg-white p-5 sm:p-8 rounded-2xl shadow-xs border border-slate-100 max-w-lg mx-auto text-center">
+                    <h2 class="text-xl font-extrabold text-slate-900">Classroom Attendance QR</h2>
+                    <p class="text-sm text-slate-500 mt-1 mb-5">Display this QR code so students can scan it using their phones.</p>
+
+                    <button onclick="generateAttendanceQR()" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-3.5 rounded-xl shadow-md transition">
+                        ✨ GENERATE NEW CLASS QR
+                    </button>
+
+                    <div id="qrBox" class="my-6 p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center min-h-[240px]">
+                        <span class="text-slate-400 text-sm">Tap the button above to generate today's QR code.</span>
+                    </div>
+
+                    <p id="qrExpiry" class="text-xs font-semibold text-slate-500 mb-4"></p>
+
+                    <div id="qrShareActions" class="hidden flex flex-col sm:flex-row gap-2.5 justify-center">
+                        <button onclick="downloadCanvasQR('qrBox', 'class-attendance-qr.png')" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm">
+                            ⬇ Save QR Image
+                        </button>
+                        <button onclick="copyClassQrCode()" class="bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold px-4 py-2.5 rounded-xl text-sm">
+                            📋 Copy Session Code
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== LIVE ATTENDANCE ==================== -->
+            <section id="liveAttendance" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping"></span>
+                            <h2 class="text-lg font-extrabold text-slate-900">Live Attendance Feed</h2>
+                        </div>
+                        <span id="liveCountBadge" class="text-xs font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-full">0 Today</span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[580px]">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <th class="p-3">Name</th>
+                                    <th class="p-3">Student ID</th>
+                                    <th class="p-3">Grade</th>
+                                    <th class="p-3">Section</th>
+                                    <th class="p-3">Time Logged</th>
+                                    <th class="p-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="liveTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== STUDENT MANAGEMENT ==================== -->
+            <section id="students" class="page hidden space-y-5">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <h3 class="text-base font-extrabold text-slate-900 mb-3">Add New Student Account</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                        <input id="newName" placeholder="Student Full Name" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="newID" placeholder="Student ID (e.g. 2026-0005)" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="newGrade" placeholder="Grade Level (e.g. Grade 10)" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="newSection" placeholder="Section (e.g. Einstein)" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="newPassword" placeholder="Password" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <div class="flex flex-wrap gap-2.5">
+                        <button onclick="addStudent()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm">+ ADD STUDENT</button>
+                        <button onclick="exportStudents()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm">⬇ EXPORT CSV</button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <h3 class="text-base font-extrabold text-slate-900 mb-3">Registered Students</h3>
+                    <input id="studentSearch" placeholder="🔍 Search student by name or ID..." oninput="renderStudents()" class="w-full px-4 py-3 rounded-xl border border-slate-300 bg-slate-50 mb-4">
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[620px]">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <th class="p-3">Name</th>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">Grade</th>
+                                    <th class="p-3">Section</th>
+                                    <th class="p-3">Status</th>
+                                    <th class="p-3">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="studentTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== CLASSES & SECTIONS ==================== -->
+            <section id="classes" class="page hidden space-y-5">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <h3 class="text-base font-extrabold text-slate-900 mb-3">Create Class / Section</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        <input id="classGrade" placeholder="Grade Level" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="classSection" placeholder="Section Name" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="classAdviser" placeholder="Class Adviser" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="classSchedule" placeholder="Schedule (e.g. MWF 8:00 AM)" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <button onclick="addClass()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm">+ CREATE SECTION</button>
+                </div>
+
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[600px]">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                <th class="p-3">Grade Level</th>
+                                <th class="p-3">Section</th>
+                                <th class="p-3">Enrolled</th>
+                                <th class="p-3">Adviser</th>
+                                <th class="p-3">Schedule</th>
+                                <th class="p-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="classTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ==================== DAILY RECORDS ==================== -->
+            <section id="records" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <div class="flex flex-col sm:flex-row gap-3 mb-4">
+                        <input type="date" id="recordDate" onchange="renderRecords()" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <input id="recordSearch" placeholder="🔍 Search student..." oninput="renderRecords()" class="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <button onclick="exportAttendance()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm shrink-0">⬇ EXPORT CSV</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[650px]">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <th class="p-3">Student</th>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">Date</th>
+                                    <th class="p-3">Time</th>
+                                    <th class="p-3">Status</th>
+                                    <th class="p-3">Remarks</th>
+                                    <th class="p-3">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recordTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== MONTHLY RECORDS ==================== -->
+            <section id="monthly" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <div class="mb-4">
+                        <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Select Month</label>
+                        <input type="month" id="monthFilter" onchange="renderMonthly()" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[550px]">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                    <th class="p-3">Student Name</th>
+                                    <th class="p-3">ID</th>
+                                    <th class="p-3">Present</th>
+                                    <th class="p-3">Late</th>
+                                    <th class="p-3">Absent</th>
+                                    <th class="p-3">Excused</th>
+                                </tr>
+                            </thead>
+                            <tbody id="monthlyTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== REPORTS ==================== -->
+            <section id="reports" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                        <select id="reportType" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                            <option value="daily">Daily Report</option>
+                            <option value="monthly">Monthly Report</option>
+                            <option value="late">Late Students Report</option>
+                        </select>
+                        <input type="date" id="reportDate" class="px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                        <button onclick="renderReports()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-2.5 rounded-xl text-sm">GENERATE REPORT</button>
+                    </div>
+                    <div id="reportResults" class="overflow-x-auto"></div>
+                </div>
+            </section>
+
+            <!-- ==================== LATE STUDENTS ==================== -->
+            <section id="lateStudents" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[480px]">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                <th class="p-3">Name</th>
+                                <th class="p-3">ID</th>
+                                <th class="p-3">Date</th>
+                                <th class="p-3">Time Logged</th>
+                            </tr>
+                        </thead>
+                        <tbody id="lateTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ==================== NOTIFICATIONS ==================== -->
+            <section id="notifications" class="page hidden">
+                <div id="adminNotifications" class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 space-y-2.5"></div>
+            </section>
+
+            <!-- ==================== ACTIVITY LOGS ==================== -->
+            <section id="logs" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[520px]">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                <th class="p-3">Date</th>
+                                <th class="p-3">Time</th>
+                                <th class="p-3">Activity</th>
+                                <th class="p-3">User</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logsTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ==================== SETTINGS ==================== -->
+            <section id="settings" class="page hidden">
+                <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-slate-100 max-w-md space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Present Cutoff Time (HH:MM)</label>
+                        <input type="time" id="presentTime" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Late Cutoff Time (HH:MM)</label>
+                        <input type="time" id="lateTime" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">School Name</label>
+                        <input id="schoolName" placeholder="School Name" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <button onclick="saveSettings()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm">SAVE SETTINGS</button>
+                </div>
+            </section>
+
+            <!-- ==================== BACKUP & RESTORE ==================== -->
+            <section id="backup" class="page hidden">
+                <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-slate-100 max-w-lg space-y-4">
+                    <p class="text-sm text-slate-600">Export or restore system records in JSON format.</p>
+                    <button onclick="backupData()" class="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold px-5 py-3 rounded-xl text-sm">⬇ DOWNLOAD BACKUP (.JSON)</button>
+                    <hr class="border-slate-200">
+                    <div class="space-y-3">
+                        <label class="block text-xs font-bold uppercase text-slate-500">Restore from JSON File</label>
+                        <input type="file" id="restoreFile" accept=".json" class="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700">
+                        <button onclick="restoreData()" class="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 text-white font-bold px-5 py-3 rounded-xl text-sm">⬆ RESTORE DATA</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== STUDENT HOME ==================== -->
+            <section id="studentHome" class="page hidden space-y-5">
+                <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-5 sm:p-6 rounded-3xl shadow-lg">
+                    <p class="text-blue-100 text-xs font-semibold uppercase tracking-wider">Student Portal</p>
+                    <h2 class="text-2xl font-extrabold mt-1">Welcome, <span id="studentWelcome"></span>!</h2>
+                    <p id="myToday" class="mt-3 text-sm bg-white/15 backdrop-blur-xs px-3.5 py-2.5 rounded-xl font-medium inline-block"></p>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3 sm:gap-4">
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100 text-center">
+                        <p class="text-[11px] sm:text-xs font-bold uppercase text-slate-400">Rate</p>
+                        <h3 id="myPercentage" class="text-xl sm:text-3xl font-extrabold text-blue-600 mt-1">0%</h3>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100 text-center">
+                        <p class="text-[11px] sm:text-xs font-bold uppercase text-slate-400">Present</p>
+                        <h3 id="myPresent" class="text-xl sm:text-3xl font-extrabold text-emerald-600 mt-1">0</h3>
+                    </div>
+                    <div class="bg-white p-4 rounded-2xl shadow-xs border border-slate-100 text-center">
+                        <p class="text-[11px] sm:text-xs font-bold uppercase text-slate-400">Late</p>
+                        <h3 id="myLate" class="text-xl sm:text-3xl font-extrabold text-amber-600 mt-1">0</h3>
+                    </div>
+                </div>
+
+                <!-- Primary Mobile Student Actions -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button onclick="showPage('scanQR')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold p-4 rounded-2xl shadow-md flex items-center justify-center gap-3 text-base transition">
+                        <span class="text-2xl">📷</span>
+                        <div class="text-left">
+                            <div class="leading-tight">Scan Class QR</div>
+                            <div class="text-xs font-normal text-blue-100">Use camera to check in</div>
+                        </div>
+                    </button>
+                    <button onclick="showPage('myQR')" class="bg-slate-900 hover:bg-slate-800 text-white font-bold p-4 rounded-2xl shadow-md flex items-center justify-center gap-3 text-base transition">
+                        <span class="text-2xl">📱</span>
+                        <div class="text-left">
+                            <div class="leading-tight">My QR Badge</div>
+                            <div class="text-xs font-normal text-slate-300">Show to teacher to scan</div>
+                        </div>
+                    </button>
+                </div>
+            </section>
+
+            <!-- ==================== STUDENT PERSONAL QR CODE ==================== -->
+            <section id="myQR" class="page hidden">
+                <div id="printableBadgeArea" class="bg-white p-6 sm:p-8 rounded-3xl shadow-xs border border-slate-200 max-w-sm mx-auto text-center">
+                    <span class="inline-block text-xs font-bold uppercase tracking-wider bg-blue-50 text-blue-700 px-3 py-1 rounded-full mb-3">Official Attendance Badge</span>
+                    <h2 id="myQRName" class="text-2xl font-extrabold text-slate-900"></h2>
+                    <p id="myQRID" class="text-sm text-slate-500 mt-1 mb-5"></p>
+
+                    <div id="studentQR" class="p-5 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-300 flex items-center justify-center mx-auto w-fit"></div>
+
+                    <p class="mt-4 text-xs text-slate-500">Present this QR code to your teacher or scanner kiosk to record your attendance.</p>
+
+                    <div class="mt-6 flex flex-col sm:flex-row gap-2.5">
+                        <button onclick="downloadCanvasQR('studentQR', 'my-attendance-badge.png')" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm shadow-sm">
+                            ⬇ Save Badge
+                        </button>
+                        <button onclick="window.print()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl text-sm">
+                            🖨 Print
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== STUDENT SCANNER PAGE (MOBILE OPTIMIZED) ==================== -->
+            <section id="scanQR" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 max-w-lg mx-auto">
+                    <div class="text-center mb-4">
+                        <h2 class="text-lg sm:text-xl font-extrabold text-slate-900">Scan Classroom QR Code</h2>
+                        <p class="text-xs sm:text-sm text-slate-500 mt-1">Point your camera at the QR code on the teacher's screen.</p>
+                    </div>
+
+                    <!-- Camera Controls -->
+                    <div class="space-y-3 mb-4">
+                        <div class="flex gap-2">
+                            <select id="studentCameraSelect" onchange="switchScannerCamera('student')" class="flex-1 px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 text-sm">
+                                <option value="environment">🎥 Rear Camera (Default)</option>
+                                <option value="user">🤳 Front Camera</option>
+                            </select>
+                            <button id="studentTorchBtn" onclick="toggleTorch('student')" class="hidden px-3.5 py-2.5 rounded-xl bg-amber-100 text-amber-800 font-bold text-sm shrink-0">
+                                🔦 Flash
+                            </button>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2.5">
+                            <button onclick="startStudentScanner()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 text-sm">
+                                <span>▶</span> Start Camera
+                            </button>
+                            <button onclick="stopStudentScanner()" class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-sm transition flex items-center justify-center gap-1.5 text-sm">
+                                <span>⏹</span> Stop Camera
+                            </button>
+                        </div>
+
+                        <!-- Native Phone Camera / Photo Upload Fallback -->
+                        <div class="pt-1">
+                            <input type="file" id="studentQrFileInput" accept="image/*" capture="environment" class="hidden" onchange="scanQrFromFile(event, 'student')">
+                            <button onclick="document.getElementById('studentQrFileInput').click()" class="w-full bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 font-semibold py-3 rounded-xl text-sm flex items-center justify-center gap-2 transition">
+                                <span>📸</span> Take Photo / Upload QR Image
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Live Video Feed Container -->
+                    <div id="reader" class="shadow-inner flex items-center justify-center text-slate-400 text-sm">
+                        <span class="p-8 text-center">Tap "Start Camera" to scan</span>
+                    </div>
+
+                    <!-- Scan Result Banner -->
+                    <div id="scanMessage" class="mt-4"></div>
+
+                    <!-- Manual Session Code Entry Fallback -->
+                    <div class="mt-5 pt-4 border-t border-slate-100">
+                        <p class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Or Enter Class Session Code</p>
+                        <div class="flex gap-2">
+                            <input id="manualClassTokenInput" type="text" placeholder="Paste ATTEND:... code" class="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                            <button onclick="submitManualClassToken()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 rounded-xl text-sm shrink-0">Submit</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ==================== STUDENT RECORDS ==================== -->
+            <section id="myRecords" class="page hidden">
+                <div class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 overflow-x-auto">
+                    <table class="w-full text-left border-collapse min-w-[460px]">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                                <th class="p-3">Date</th>
+                                <th class="p-3">Time Logged</th>
+                                <th class="p-3">Status</th>
+                                <th class="p-3">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody id="myRecordsTable" class="divide-y divide-slate-100 text-sm"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- ==================== STUDENT NOTIFICATIONS ==================== -->
+            <section id="myNotifications" class="page hidden">
+                <div id="studentNotifications" class="bg-white p-4 sm:p-6 rounded-2xl shadow-xs border border-slate-100 space-y-2.5"></div>
+            </section>
+
+            <!-- ==================== STUDENT PROFILE ==================== -->
+            <section id="myProfile" class="page hidden">
+                <div class="bg-white p-5 sm:p-6 rounded-2xl shadow-xs border border-slate-100 max-w-md space-y-4">
+                    <p id="profileInfo" class="text-sm font-bold text-blue-700 bg-blue-50 p-3 rounded-xl"></p>
+                    <div>
+                        <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Update Full Name</label>
+                        <input id="profileName" placeholder="Update Name" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                    </div>
+                    <button onclick="updateProfile()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl text-sm">UPDATE PROFILE</button>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ==================== MOBILE BOTTOM QUICK-ACTION BAR ==================== -->
+    <nav id="mobileBottomNav" class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 bottom-nav-safe px-2 pt-1.5 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+        <!-- Student Bottom Tabs -->
+        <div id="studentBottomTabs" class="hidden grid grid-cols-4 gap-1">
+            <button onclick="showPage('studentHome')" data-bnav="studentHome" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">🏠</span>
+                <span class="text-[11px] font-semibold mt-1">Home</span>
+            </button>
+            <button onclick="showPage('scanQR')" data-bnav="scanQR" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">📷</span>
+                <span class="text-[11px] font-semibold mt-1">Scan QR</span>
+            </button>
+            <button onclick="showPage('myQR')" data-bnav="myQR" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">📱</span>
+                <span class="text-[11px] font-semibold mt-1">My Badge</span>
+            </button>
+            <button onclick="showPage('myRecords')" data-bnav="myRecords" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">📋</span>
+                <span class="text-[11px] font-semibold mt-1">Records</span>
+            </button>
+        </div>
+
+        <!-- Admin Bottom Tabs -->
+        <div id="adminBottomTabs" class="hidden grid grid-cols-4 gap-1">
+            <button onclick="showPage('dashboard')" data-bnav="dashboard" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">📊</span>
+                <span class="text-[11px] font-semibold mt-1">Dashboard</span>
+            </button>
+            <button onclick="showPage('adminScannerPage')" data-bnav="adminScannerPage" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">📷</span>
+                <span class="text-[11px] font-semibold mt-1">Scan</span>
+            </button>
+            <button onclick="showPage('qrAttendance')" data-bnav="qrAttendance" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">📢</span>
+                <span class="text-[11px] font-semibold mt-1">Class QR</span>
+            </button>
+            <button onclick="showPage('liveAttendance')" data-bnav="liveAttendance" class="bnav-btn flex flex-col items-center justify-center py-1.5 rounded-xl text-slate-500 hover:text-blue-600 min-h-0">
+                <span class="text-xl leading-none">🔴</span>
+                <span class="text-[11px] font-semibold mt-1">Live</span>
+            </button>
+        </div>
+    </nav>
+
+</div>
+
+<script>
+"use strict";
+
+const ADMIN_USERNAME = "admin";
+const ADMIN_PASSWORD = "admin123";
+
+let students = readStore("students", [
+    { name: "John Doe", id: "2026-0001", grade: "Grade 10", section: "Einstein", password: "123", active: true }
+]);
+let attendance = readStore("attendance", []);
+let classes = readStore("classes", []);
+let logs = readStore("logs", []);
+let notifications = readStore("notifications", []);
+let settings = readStore("settings", { presentTime: "07:30", lateTime: "07:45", schoolName: "Smart Academy" });
+
+let currentUser = null;
+let activeAttendanceToken = "";
+let pendingAttendanceToken = "";
+let studentScannerObj = null;
+let adminScannerObj = null;
+let studentTorchOn = false;
+let adminTorchOn = false;
+let lastScanTimestamp = 0;
+let lastScannedPayload = "";
+let chartInstance = null;
+
+/* ==================== STORAGE & HELPERS ==================== */
+function readStore(key, fallback) {
+    try {
+        const val = localStorage.getItem(key);
+        return val ? JSON.parse(val) : fallback;
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function saveData() {
+    localStorage.setItem("students", JSON.stringify(students));
+    localStorage.setItem("attendance", JSON.stringify(attendance));
+    localStorage.setItem("classes", JSON.stringify(classes));
+    localStorage.setItem("logs", JSON.stringify(logs));
+    localStorage.setItem("notifications", JSON.stringify(notifications));
+    localStorage.setItem("settings", JSON.stringify(settings));
+}
+
+function today() {
+    const d = new Date();
+    return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-");
+}
+
+function timeNow() {
+    return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function escapeHTML(str) {
+    return String(str || "").replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[c]));
+}
+
+function byId(id) { return document.getElementById(id); }
+function val(id) { return byId(id)?.value?.trim() || ""; }
+
+function getStudent(id) {
+    return students.find(s => String(s.id).trim().toLowerCase() === String(id).trim().toLowerCase());
+}
+
+function logActivity(activity) {
+    logs.unshift({ date: today(), time: timeNow(), activity, user: currentUser?.name || "System" });
+    logs = logs.slice(0, 300);
+    saveData();
+}
+
+function notify(message, target = "admin", studentID = "") {
+    notifications.unshift({ message, target, studentID, date: today(), time: timeNow() });
+    notifications = notifications.slice(0, 200);
+    saveData();
+}
+
+function badgeHTML(status) {
+    const styles = {
+        Present: "bg-emerald-100 text-emerald-800",
+        Late: "bg-amber-100 text-amber-800",
+        Absent: "bg-rose-100 text-rose-800",
+        Excused: "bg-blue-100 text-blue-800"
+    };
+    return `<span class="px-2.5 py-1 rounded-full text-xs font-bold inline-block ${styles[status] || 'bg-slate-100 text-slate-700'}">${escapeHTML(status)}</span>`;
+}
+
+/* ==================== CUSTOM TOAST & MODAL UI (NO NATIVE ALERT/CONFIRM) ==================== */
+function showToast(message, type = "info") {
+    const container = byId("toastContainer");
+    if (!container) return;
+
+    const colors = {
+        success: "bg-emerald-600 text-white border-emerald-700",
+        error: "bg-rose-600 text-white border-rose-700",
+        warning: "bg-amber-500 text-slate-950 border-amber-600",
+        info: "bg-slate-900 text-white border-slate-700"
+    };
+
+    const toast = document.createElement("div");
+    toast.className = `pointer-events-auto px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold flex items-center justify-between gap-3 transition-all duration-300 transform translate-y-0 ${colors[type] || colors.info}`;
+    toast.innerHTML = `<span>${escapeHTML(message)}</span><button class="text-xs opacity-75 hover:opacity-100 min-h-0 p-1" onclick="this.parentElement.remove()">✕</button>`;
+
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = "0";
+        toast.style.transform = "translateY(-8px)";
+        setTimeout(() => toast.remove(), 300);
+    }, 3800);
+}
+
+function showModal({ title, body, confirmText = "Confirm", confirmClass = "bg-blue-600 hover:bg-blue-700 text-white", extraHTML = "", onConfirm }) {
+    const modal = byId("customModal");
+    byId("modalTitle").textContent = title;
+    byId("modalBody").textContent = body;
+
+    const extra = byId("modalExtraContent");
+    if (extraHTML) {
+        extra.innerHTML = extraHTML;
+        extra.classList.remove("hidden");
+    } else {
+        extra.innerHTML = "";
+        extra.classList.add("hidden");
+    }
+
+    const confirmBtn = byId("modalConfirmBtn");
+    confirmBtn.textContent = confirmText;
+    confirmBtn.className = `px-5 py-2.5 rounded-xl font-semibold text-sm transition ${confirmClass}`;
+
+    const close = () => {
+        modal.classList.add("hidden");
+        modal.classList.remove("flex");
+    };
+
+    byId("modalCancelBtn").onclick = close;
+    confirmBtn.onclick = () => {
+        if (onConfirm) onConfirm();
+        close();
+    };
+
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+}
+
+/* ==================== MOBILE DRAWER & NAVIGATION ==================== */
+function openMobileDrawer() {
+    byId("sidebarDrawer").classList.remove("-translate-x-full");
+    byId("drawerBackdrop").classList.remove("hidden");
+}
+
+function closeMobileDrawer() {
+    byId("sidebarDrawer").classList.add("-translate-x-full");
+    byId("drawerBackdrop").classList.add("hidden");
+}
+
+function updateActiveNavStates(pageId) {
+    document.querySelectorAll(".nav-btn").forEach(btn => {
+        const isActive = btn.getAttribute("data-page") === pageId;
+        btn.classList.toggle("bg-slate-800", isActive);
+        btn.classList.toggle("text-white", isActive);
+        btn.classList.toggle("font-bold", isActive);
+        btn.classList.toggle("border-l-4", isActive);
+        btn.classList.toggle("border-sky-400", isActive);
+        btn.classList.toggle("text-slate-300", !isActive);
+    });
+
+    document.querySelectorAll(".bnav-btn").forEach(btn => {
+        const isActive = btn.getAttribute("data-bnav") === pageId;
+        btn.classList.toggle("text-blue-600", isActive);
+        btn.classList.toggle("bg-blue-50", isActive);
+        btn.classList.toggle("text-slate-500", !isActive);
+    });
+}
+
+/* ==================== AUTHENTICATION ==================== */
+function showRegistration() {
+    byId("loginScreen").classList.add("hidden");
+    byId("registrationScreen").classList.remove("hidden");
+    byId("registrationScreen").classList.add("flex");
+}
+
+function backLogin() {
+    byId("registrationScreen").classList.add("hidden");
+    byId("registrationScreen").classList.remove("flex");
+    byId("loginScreen").classList.remove("hidden");
+}
+
+function registerStudent() {
+    const name = val("regName"), id = val("regID"), grade = val("regGrade"),
+          section = val("regSection"), password = byId("regPassword").value.trim();
+
+    if (!name || !id || !grade || !section || !password) {
+        return showToast("Please fill out all registration fields.", "error");
+    }
+    if (getStudent(id)) {
+        return showToast("Student ID is already registered.", "error");
+    }
+
+    students.push({ name, id, grade, section, password, active: true });
+    saveData();
+    logActivity("Registered student: " + name);
+    showToast("Registration successful! Please sign in.", "success");
+    backLogin();
+}
+
+function login() {
+    const role = val("loginRole");
+    const id = val("loginID");
+    const password = byId("loginPassword").value.trim();
+
+    if (!id || !password) return showToast("Please enter login credentials.", "error");
+
+    if (role === "admin") {
+        if (id !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+            return showToast("Invalid Admin username or password.", "error");
+        }
+        currentUser = { role: "admin", id: ADMIN_USERNAME, name: "Administrator" };
+    } else {
+        const student = getStudent(id);
+        if (!student || student.password !== password) {
+            return showToast("Invalid Student ID or password.", "error");
+        }
+        if (student.active === false) {
+            return showToast("This student account is disabled.", "error");
+        }
+        currentUser = { role: "student", id: student.id, name: student.name };
+    }
+
+    byId("loginScreen").classList.add("hidden");
+    byId("application").classList.remove("hidden");
+    byId("currentUser").textContent = currentUser.name;
+    byId("sidebarSchoolName").textContent = settings.schoolName || "Smart Academy";
+
+    const isAdmin = currentUser.role === "admin";
+    byId("adminMenu").classList.toggle("hidden", !isAdmin);
+    byId("studentMenu").classList.toggle("hidden", isAdmin);
+    byId("adminBottomTabs").classList.toggle("hidden", !isAdmin);
+    byId("studentBottomTabs").classList.toggle("hidden", isAdmin);
+
+    logActivity("User logged in: " + currentUser.name);
+    showToast(`Welcome back, ${currentUser.name}!`, "success");
+    showPage(isAdmin ? "dashboard" : "studentHome");
+
+    // If the student opened the site from a classroom QR link, record attendance after login.
+    if (!isAdmin && pendingAttendanceToken) {
+        const token = pendingAttendanceToken;
+        pendingAttendanceToken = "";
+        try { history.replaceState({}, document.title, location.pathname + location.hash); } catch (e) {}
+        if (isValidClassAttendanceToken(token)) {
+            const result = recordAttendanceForStudent(currentUser.id, "Class QR Link");
+            showToast("Attendance recorded: " + result.status, "success");
+        } else {
+            showToast("This classroom QR link is invalid or expired.", "error");
+        }
+    }
+}
+
+function logout() {
+    stopStudentScanner();
+    stopAdminScanner();
+    closeMobileDrawer();
+    currentUser = null;
+    byId("application").classList.add("hidden");
+    byId("loginScreen").classList.remove("hidden");
+    byId("loginID").value = "";
+    byId("loginPassword").value = "";
+}
+
+function showPage(pageId) {
+    if (!currentUser) return;
+    closeMobileDrawer();
+
+    document.querySelectorAll(".page").forEach(p => p.classList.add("hidden"));
+    const page = byId(pageId);
+    if (page) page.classList.remove("hidden");
+
+    updateActiveNavStates(pageId);
+
+    const titleMap = {
+        dashboard: "Dashboard", adminScannerPage: "Badge Scanner", qrAttendance: "Broadcast QR",
+        liveAttendance: "Live Attendance", students: "Students & QRs", classes: "Classes & Sections",
+        records: "Daily Records", monthly: "Monthly Summary", reports: "Reports",
+        lateStudents: "Late Arrivals", notifications: "Notifications", logs: "Activity Logs",
+        settings: "Settings", backup: "Backup & Restore", studentHome: "My Dashboard",
+        myQR: "My QR Badge", scanQR: "Scan Class QR", myRecords: "My Attendance",
+        myNotifications: "Notifications", myProfile: "My Profile"
+    };
+
+    byId("pageTitle").textContent = titleMap[pageId] || "Smart Attendance";
+
+    if (pageId !== "scanQR") stopStudentScanner();
+    if (pageId !== "adminScannerPage") stopAdminScanner();
+
+    if (pageId === "dashboard") renderDashboard();
+    if (pageId === "students") renderStudents();
+    if (pageId === "classes") renderClasses();
+    if (pageId === "records") renderRecords();
+    if (pageId === "monthly") renderMonthly();
+    if (pageId === "liveAttendance") renderLive();
+    if (pageId === "lateStudents") renderLate();
+    if (pageId === "notifications") renderNotifications();
+    if (pageId === "logs") renderLogs();
+    if (pageId === "studentHome") renderStudentHome();
+    if (pageId === "myQR") renderMyQR();
+    if (pageId === "myRecords") renderMyRecords();
+    if (pageId === "myNotifications") renderStudentNotifications();
+    if (pageId === "myProfile") renderProfile();
+
+    // Auto-populate camera dropdown when entering scanner pages
+    if (pageId === "adminScannerPage") populateCameraDropdown("adminCameraSelect");
+    if (pageId === "scanQR") populateCameraDropdown("studentCameraSelect");
+}
+
+/* ==================== ATTENDANCE CORE LOGIC ==================== */
+function evaluateStatus() {
+    const now = new Date();
+    const curTime = String(now.getHours()).padStart(2, '0') + ":" + String(now.getMinutes()).padStart(2, '0');
+    if (curTime <= (settings.presentTime || "07:30")) return "Present";
+    return "Late";
+}
+
+function triggerScanFeedback(success = true) {
+    // Haptic vibration on Android/supported phones
+    if (navigator.vibrate) {
+        navigator.vibrate(success ? [120, 60, 120] : [300]);
+    }
+    // Subtle Web Audio beep without external audio URLs
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+            const ctx = new AudioCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = success ? "sine" : "sawtooth";
+            osc.frequency.setValueAtTime(success ? 880 : 240, ctx.currentTime);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.18);
+        }
+    } catch (e) {}
+}
+
+function recordAttendanceForStudent(studentID, remark = "Scanned") {
+    const s = getStudent(studentID);
+    if (!s) throw new Error("Student record not found for ID: " + studentID);
+
+    const alreadyMarked = attendance.some(a => String(a.studentID).toLowerCase() === String(s.id).toLowerCase() && a.date === today());
+    if (alreadyMarked) throw new Error(`${s.name} (${s.id}) is already marked for today!`);
+
+    const status = evaluateStatus();
+    const newRecord = {
+        student: s.name,
+        studentID: s.id,
+        grade: s.grade,
+        section: s.section,
+        date: today(),
+        time: timeNow(),
+        status: status,
+        remarks: remark
+    };
+
+    attendance.unshift(newRecord);
+    saveData();
+    logActivity(`Attendance logged: ${s.name} (${status})`);
+    notify(`Attendance marked (${status}) for ${s.name}`, "student", s.id);
+    return { student: s, status };
+}
+
+/* ==================== MOBILE CAMERA ENUMERATION & TORCH ==================== */
+async function populateCameraDropdown(selectId) {
+    const selectEl = byId(selectId);
+    if (!selectEl || typeof Html5Qrcode === "undefined") return;
+
+    try {
+        const devices = await Html5Qrcode.getCameras();
+        if (devices && devices.length > 0) {
+            // Keep default facingMode options at top + list specific device lenses (e.g. Back Main, Wide, Front)
+            let optionsHTML = `
+                <option value="environment">🎥 Rear Camera (Auto)</option>
+                <option value="user">🤳 Front Camera (Selfie)</option>
+            `;
+            devices.forEach((dev, idx) => {
+                const label = dev.label || `Camera ${idx + 1}`;
+                optionsHTML += `<option value="${escapeHTML(dev.id)}">📷 ${escapeHTML(label)}</option>`;
+            });
+            selectEl.innerHTML = optionsHTML;
+        }
+    } catch (e) {
+        // Permission not granted yet; default facingMode options remain usable
+    }
+}
+
+function getCameraConfig(selectId) {
+    const valSelected = val(selectId) || "environment";
+    if (valSelected === "environment" || valSelected === "user") {
+        return { facingMode: valSelected };
+    }
+    return { deviceId: { exact: valSelected } };
+}
+
+function getResponsiveScannerConfig() {
+    return {
+        fps: 12,
+        aspectRatio: 1.0,
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+            const size = Math.max(160, Math.floor(minEdge * 0.72));
+            return { width: size, height: size };
+        },
+        experimentalFeatures: {
+            useBarCodeDetectorIfSupported: true
+        }
+    };
+}
+
+function enforceMobileVideoAttributes(containerId) {
+    setTimeout(() => {
+        const video = document.querySelector(`#${containerId} video`);
+        if (video) {
+            video.setAttribute("playsinline", "true");
+            video.setAttribute("webkit-playsinline", "true");
+            video.setAttribute("autoplay", "true");
+            video.muted = true;
+        }
+    }, 300);
+}
+
+async function checkTorchSupport(scannerObj, btnId) {
+    const btn = byId(btnId);
+    if (!btn || !scannerObj) return;
+    try {
+        const caps = scannerObj.getRunningTrackCapabilities ? scannerObj.getRunningTrackCapabilities() : {};
+        if (caps && caps.torch) {
+            btn.classList.remove("hidden");
+        } else {
+            btn.classList.add("hidden");
+        }
+    } catch (e) {
+        btn.classList.add("hidden");
+    }
+}
+
+async function toggleTorch(mode) {
+    const scannerObj = mode === "admin" ? adminScannerObj : studentScannerObj;
+    if (!scannerObj || !scannerObj.applyVideoConstraints) return;
+
+    try {
+        if (mode === "admin") {
+            adminTorchOn = !adminTorchOn;
+            await scannerObj.applyVideoConstraints({ advanced: [{ torch: adminTorchOn }] });
+            byId("adminTorchBtn").textContent = adminTorchOn ? "🔦 On" : "🔦 Flash";
+        } else {
+            studentTorchOn = !studentTorchOn;
+            await scannerObj.applyVideoConstraints({ advanced: [{ torch: studentTorchOn }] });
+            byId("studentTorchBtn").textContent = studentTorchOn ? "🔦 On" : "🔦 Flash";
+        }
+    } catch (e) {
+        showToast("Flashlight not supported on this lens.", "warning");
+    }
+}
+
+async function switchScannerCamera(mode) {
+    if (mode === "admin" && adminScannerObj && adminScannerObj.isScanning) {
+        await stopAdminScanner();
+        await startAdminScanner();
+    } else if (mode === "student" && studentScannerObj && studentScannerObj.isScanning) {
+        await stopStudentScanner();
+        await startStudentScanner();
+    }
+}
+
+/* ==================== ADMIN BADGE SCANNER ==================== */
+function handleAdminDecodedPayload(decodedText) {
+    const now = Date.now();
+    if (decodedText === lastScannedPayload && now - lastScanTimestamp < 2500) return;
+    lastScannedPayload = decodedText;
+    lastScanTimestamp = now;
+
+    let cleanID = decodedText.trim();
+    if (cleanID.startsWith("STUDENT:")) {
+        cleanID = cleanID.replace("STUDENT:", "").trim();
+    }
+
+    try {
+        const res = recordAttendanceForStudent(cleanID, "Scanned by Admin");
+        triggerScanFeedback(true);
+        byId("adminScanResult").innerHTML = `
+            <div class="p-3.5 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-sm text-center">
+                ✅ Marked ${res.status}: ${escapeHTML(res.student.name)} (${escapeHTML(res.student.id)})
+            </div>`;
+        showToast(`Marked ${res.status}: ${res.student.name}`, "success");
+    } catch (err) {
+        triggerScanFeedback(false);
+        byId("adminScanResult").innerHTML = `
+            <div class="p-3.5 rounded-2xl bg-amber-100 border border-amber-300 text-amber-900 font-bold text-sm text-center">
+                ⚠️ ${escapeHTML(err.message)}
+            </div>`;
+    }
+}
+
+async function startAdminScanner() {
+    if (typeof Html5Qrcode === "undefined") {
+        return showToast("QR Scanner library failed to load. Check internet connection.", "error");
+    }
+
+    await stopAdminScanner();
+    byId("adminReader").innerHTML = "";
+    adminScannerObj = new Html5Qrcode("adminReader");
+
+    try {
+        await adminScannerObj.start(
+            getCameraConfig("adminCameraSelect"),
+            getResponsiveScannerConfig(),
+            (decodedText) => handleAdminDecodedPayload(decodedText),
+            () => {}
+        );
+        enforceMobileVideoAttributes("adminReader");
+        await populateCameraDropdown("adminCameraSelect");
+        await checkTorchSupport(adminScannerObj, "adminTorchBtn");
+    } catch (err) {
+        byId("adminReader").innerHTML = `<div class="p-6 text-center text-rose-300 text-xs">Camera couldn't open (${escapeHTML(err?.message || err)}). Use the <b>Take Photo / Upload QR Image</b> button above!</div>`;
+        showToast("Camera permission denied or unavailable. Use Photo Scan fallback.", "warning");
+    }
+}
+
+async function stopAdminScanner() {
+    adminTorchOn = false;
+    byId("adminTorchBtn")?.classList.add("hidden");
+    if (adminScannerObj) {
+        try {
+            if (adminScannerObj.isScanning) await adminScannerObj.stop();
+            await adminScannerObj.clear();
+        } catch (e) {}
+        adminScannerObj = null;
+    }
+    if (byId("adminReader")) {
+        byId("adminReader").innerHTML = `<span class="p-8 text-center">Camera preview will appear here</span>`;
+    }
+}
+
+function manualAdminCheckIn() {
+    const id = val("manualAdminStudentId");
+    if (!id) return showToast("Enter a Student ID first.", "warning");
+    handleAdminDecodedPayload(id);
+    byId("manualAdminStudentId").value = "";
+}
+
+/* ==================== BROADCAST CLASS QR & CROSS-DEVICE VALIDATION ==================== */
+function buildAttendanceLink(token) {
+    // Uses the current hosted page URL, so it works on GitHub Pages without a hard-coded domain.
+    const link = new URL(window.location.href);
+    link.searchParams.set("attendance", token);
+    link.hash = "";
+    return link.toString();
+}
+
+function getAttendanceTokenFromPayload(payload) {
+    const value = String(payload || "").trim();
+    if (value.startsWith("ATTEND:")) return value;
+    try {
+        const url = new URL(value);
+        if (url.origin === window.location.origin) return url.searchParams.get("attendance") || "";
+    } catch (e) {}
+    return "";
+}
+
+function generateAttendanceQR() {
+    activeAttendanceToken = "ATTEND:" + today() + ":" + Math.random().toString(36).substring(2, 9).toUpperCase();
+    const attendanceLink = buildAttendanceLink(activeAttendanceToken);
+    const box = byId("qrBox");
+    box.innerHTML = "";
+    new QRCode(box, {
+        text: attendanceLink,
+        width: 220,
+        height: 220,
+        correctLevel: QRCode.CorrectLevel.M
+    });
+    byId("qrExpiry").textContent = `Scan to open website • Session valid today (${today()})`;
+    byId("qrShareActions").classList.remove("hidden");
+    showToast("Website attendance QR generated! Scan using your phone camera.", "success");
+}
+
+function copyClassQrCode() {
+    if (!activeAttendanceToken) return;
+    const temp = document.createElement("textarea");
+    temp.value = activeAttendanceToken;
+    document.body.appendChild(temp);
+    temp.select();
+    document.execCommand("copy");
+    document.body.removeChild(temp);
+    showToast("Session code copied to clipboard!", "success");
+}
+
+function isValidClassAttendanceToken(code) {
+    const clean = String(code || "").trim();
+    // 1. Exact match if scanned on the same device that generated it
+    if (activeAttendanceToken && clean === activeAttendanceToken) return true;
+    // 2. Cross-device validation: Teacher displays QR on laptop, Student scans on phone
+    // Format: ATTEND:YYYY-MM-DD:TOKEN
+    const parts = clean.split(":");
+    if (parts.length === 3 && parts[0] === "ATTEND" && parts[1] === today() && parts[2].length >= 4) {
+        return true;
+    }
+    return false;
+}
+
+/* ==================== STUDENT CLASS QR SCANNER ==================== */
+function handleStudentDecodedPayload(decodedText) {
+    decodedText = getAttendanceTokenFromPayload(decodedText);
+    const now = Date.now();
+    if (decodedText === lastScannedPayload && now - lastScanTimestamp < 2500) return;
+    lastScannedPayload = decodedText;
+    lastScanTimestamp = now;
+
+    if (!isValidClassAttendanceToken(decodedText)) {
+        triggerScanFeedback(false);
+        byId("scanMessage").innerHTML = `
+            <div class="p-3.5 rounded-2xl bg-rose-100 border border-rose-300 text-rose-900 font-bold text-sm text-center">
+                ❌ Invalid or Expired Class QR Code (${escapeHTML(decodedText.slice(0, 24))})
+            </div>`;
+        return;
+    }
+
+    try {
+        const res = recordAttendanceForStudent(currentUser.id, "Self Class Scan");
+        triggerScanFeedback(true);
+        byId("scanMessage").innerHTML = `
+            <div class="p-4 rounded-2xl bg-emerald-100 border border-emerald-300 text-emerald-900 font-bold text-sm text-center">
+                ✅ Attendance Recorded: ${res.status} at ${timeNow()}
+            </div>`;
+        showToast(`Attendance Recorded: ${res.status}!`, "success");
+        stopStudentScanner();
+    } catch (e) {
+        triggerScanFeedback(false);
+        byId("scanMessage").innerHTML = `
+            <div class="p-3.5 rounded-2xl bg-amber-100 border border-amber-300 text-amber-900 font-bold text-sm text-center">
+                ⚠️ ${escapeHTML(e.message)}
+            </div>`;
+    }
+}
+
+async function startStudentScanner() {
+    if (typeof Html5Qrcode === "undefined") {
+        return showToast("QR Scanner library failed to load.", "error");
+    }
+
+    await stopStudentScanner();
+    byId("reader").innerHTML = "";
+    studentScannerObj = new Html5Qrcode("reader");
+
+    try {
+        await studentScannerObj.start(
+            getCameraConfig("studentCameraSelect"),
+            getResponsiveScannerConfig(),
+            (decodedText) => handleStudentDecodedPayload(decodedText),
+            () => {}
+        );
+        enforceMobileVideoAttributes("reader");
+        await populateCameraDropdown("studentCameraSelect");
+        await checkTorchSupport(studentScannerObj, "studentTorchBtn");
+    } catch (err) {
+        byId("reader").innerHTML = `<div class="p-6 text-center text-rose-300 text-xs">Camera couldn't open (${escapeHTML(err?.message || err)}). Tap <b>Take Photo / Upload QR Image</b> above to scan!</div>`;
+        showToast("Camera permission blocked or unavailable. Use Photo Scan!", "warning");
+    }
+}
+
+async function stopStudentScanner() {
+    studentTorchOn = false;
+    byId("studentTorchBtn")?.classList.add("hidden");
+    if (studentScannerObj) {
+        try {
+            if (studentScannerObj.isScanning) await studentScannerObj.stop();
+            await studentScannerObj.clear();
+        } catch (e) {}
+        studentScannerObj = null;
+    }
+    if (byId("reader")) {
+        byId("reader").innerHTML = `<span class="p-8 text-center">Tap "Start Camera" to scan</span>`;
+    }
+}
+
+function submitManualClassToken() {
+    const code = val("manualClassTokenInput");
+    if (!code) return showToast("Please paste or enter a session code.", "warning");
+    handleStudentDecodedPayload(code);
+    byId("manualClassTokenInput").value = "";
+}
+
+/* ==================== PHOTO / IMAGE FILE QR SCAN FALLBACK ==================== */
+async function scanQrFromFile(event, mode) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    if (typeof Html5Qrcode === "undefined") {
+        return showToast("QR decoder library not loaded.", "error");
+    }
+
+    // Stop active video stream first to avoid DOM conflicts
+    if (mode === "admin") await stopAdminScanner();
+    else await stopStudentScanner();
+
+    const targetDivId = mode === "admin" ? "adminReader" : "reader";
+    const tempScanner = new Html5Qrcode(targetDivId);
+
+    try {
+        showToast("Scanning QR from image...", "info");
+        const decodedText = await tempScanner.scanFile(file, true);
+        await tempScanner.clear();
+
+        if (mode === "admin") {
+            handleAdminDecodedPayload(decodedText);
+        } else {
+            handleStudentDecodedPayload(decodedText);
+        }
+    } catch (err) {
+        try { await tempScanner.clear(); } catch (e) {}
+        triggerScanFeedback(false);
+        showToast("No readable QR code found in that image. Try getting closer and ensure good lighting.", "error");
+    } finally {
+        event.target.value = "";
+    }
+}
+
+/* ==================== QR DOWNLOAD / EXPORT HELPERS ==================== */
+function downloadCanvasQR(containerId, filename) {
+    const container = byId(containerId);
+    if (!container) return;
+    const canvas = container.querySelector("canvas");
+    const img = container.querySelector("img");
+
+    let dataUrl = "";
+    if (canvas) {
+        dataUrl = canvas.toDataURL("image/png");
+    } else if (img && img.src) {
+        dataUrl = img.src;
+    }
+
+    if (!dataUrl) return showToast("QR image not ready yet.", "warning");
+
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = filename;
+    link.click();
+    showToast("QR image downloaded!", "success");
+}
+
+/* ==================== STUDENT PERSONAL QR ==================== */
+function renderMyQR() {
+    const s = getStudent(currentUser.id);
+    if (!s) return;
+    byId("myQRName").textContent = s.name;
+    byId("myQRID").textContent = `ID: ${s.id} • ${s.grade} - ${s.section}`;
+
+    const qrContainer = byId("studentQR");
+    qrContainer.innerHTML = "";
+
+    new QRCode(qrContainer, {
+        text: "STUDENT:" + s.id,
+        width: 210,
+        height: 210,
+        correctLevel: QRCode.CorrectLevel.H
+    });
+}
+
+/* ==================== ADMIN CRUD & RENDERERS ==================== */
+function addStudent() {
+    const name = val("newName"), id = val("newID"), grade = val("newGrade"),
+          section = val("newSection"), password = val("newPassword");
+
+    if (!name || !id || !grade || !section || !password) {
+        return showToast("Fill out all student details.", "error");
+    }
+    if (getStudent(id)) {
+        return showToast("Student ID already exists.", "error");
+    }
+
+    students.push({ name, id, grade, section, password, active: true });
+    saveData();
+    logActivity("Added student: " + name);
+    ["newName", "newID", "newGrade", "newSection", "newPassword"].forEach(i => byId(i).value = "");
+    renderStudents();
+    showToast(`Added ${name} (${id})`, "success");
+}
+
+function renderStudents() {
+    const q = val("studentSearch").toLowerCase();
+    const filtered = students.filter(s => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q));
+
+    byId("studentTable").innerHTML = filtered.map(s => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-bold text-slate-900">${escapeHTML(s.name)}</td>
+            <td class="p-3 font-mono text-xs">${escapeHTML(s.id)}</td>
+            <td class="p-3">${escapeHTML(s.grade)}</td>
+            <td class="p-3">${escapeHTML(s.section)}</td>
+            <td class="p-3"><span class="px-2 py-0.5 rounded-full text-xs font-semibold ${s.active !== false ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}">${s.active !== false ? 'Active' : 'Disabled'}</span></td>
+            <td class="p-3 flex gap-2">
+                <button class="px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold text-xs min-h-0" onclick="viewBadgeQR('${encodeURIComponent(s.id)}')">View QR</button>
+                <button class="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs min-h-0" onclick="deleteStudent('${encodeURIComponent(s.id)}')">Delete</button>
+            </td>
+        </tr>
+    `).join("") || `<tr><td colspan="6" class="p-4 text-center text-slate-400">No student records found.</td></tr>`;
+}
+
+function viewBadgeQR(encodedID) {
+    const s = getStudent(decodeURIComponent(encodedID));
+    if (!s) return;
+
+    byId("modalQrStudentName").textContent = s.name;
+    byId("modalQrStudentMeta").textContent = `ID: ${s.id} • ${s.grade} - ${s.section}`;
+    const box = byId("modalQrBox");
+    box.innerHTML = "";
+    new QRCode(box, {
+        text: "STUDENT:" + s.id,
+        width: 200,
+        height: 200,
+        correctLevel: QRCode.CorrectLevel.H
+    });
+
+    const modal = byId("qrPreviewModal");
+    modal.classList.remove("hidden");
+    modal.classList.add("flex");
+}
+
+function closeQrPreviewModal() {
+    const modal = byId("qrPreviewModal");
+    modal.classList.add("hidden");
+    modal.classList.remove("flex");
+}
+
+function deleteStudent(encodedID) {
+    const id = decodeURIComponent(encodedID);
+    const s = getStudent(id);
+    showModal({
+        title: "Delete Student Account",
+        body: `Are you sure you want to delete ${s ? s.name : id}? This cannot be undone.`,
+        confirmText: "Delete",
+        confirmClass: "bg-rose-600 hover:bg-rose-700 text-white",
+        onConfirm: () => {
+            students = students.filter(st => st.id !== id);
+            saveData();
+            renderStudents();
+            showToast("Student deleted.", "info");
+        }
+    });
+}
+
+function addClass() {
+    const grade = val("classGrade"), section = val("classSection"), adviser = val("classAdviser"), schedule = val("classSchedule");
+    if (!grade || !section) return showToast("Enter Grade and Section.", "warning");
+    classes.push({ grade, section, adviser, schedule });
+    saveData();
+    ["classGrade", "classSection", "classAdviser", "classSchedule"].forEach(i => byId(i).value = "");
+    renderClasses();
+    showToast("Class section created!", "success");
+}
+
+function renderClasses() {
+    byId("classTable").innerHTML = classes.map((c, i) => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold">${escapeHTML(c.grade)}</td>
+            <td class="p-3">${escapeHTML(c.section)}</td>
+            <td class="p-3">${students.filter(s => s.grade === c.grade && s.section === c.section).length}</td>
+            <td class="p-3">${escapeHTML(c.adviser)}</td>
+            <td class="p-3">${escapeHTML(c.schedule)}</td>
+            <td class="p-3"><button class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 font-semibold text-xs min-h-0" onclick="deleteClass(${i})">Remove</button></td>
+        </tr>
+    `).join("") || `<tr><td colspan="6" class="p-4 text-center text-slate-400">No sections added yet.</td></tr>`;
+}
+
+function deleteClass(i) {
+    classes.splice(i, 1);
+    saveData();
+    renderClasses();
+    showToast("Class removed.", "info");
+}
+
+function renderDashboard() {
+    const todayLogs = attendance.filter(a => a.date === today());
+    const presentCount = todayLogs.filter(a => a.status === "Present").length;
+    const lateCount = todayLogs.filter(a => a.status === "Late").length;
+    const totalCount = students.length;
+    const absentCount = Math.max(0, totalCount - (presentCount + lateCount));
+
+    byId("totalStudents").textContent = totalCount;
+    byId("totalPresent").textContent = presentCount;
+    byId("totalLate").textContent = lateCount;
+    byId("totalAbsent").textContent = absentCount;
+    byId("attendancePercent").textContent = totalCount ? Math.round(((presentCount + lateCount) / totalCount) * 100) + "%" : "0%";
+
+    byId("recentActivities").innerHTML = attendance.slice(0, 7).map(a => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold text-slate-900">${escapeHTML(a.student)}</td>
+            <td class="p-3 font-mono text-xs">${escapeHTML(a.studentID)}</td>
+            <td class="p-3">${escapeHTML(a.date)}</td>
+            <td class="p-3">${escapeHTML(a.time)}</td>
+            <td class="p-3">${badgeHTML(a.status)}</td>
+        </tr>
+    `).join("") || `<tr><td colspan="5" class="p-4 text-center text-slate-400">No attendance logged today.</td></tr>`;
+
+    if (typeof Chart !== "undefined" && byId("attendanceChart")) {
+        if (chartInstance) chartInstance.destroy();
+        chartInstance = new Chart(byId("attendanceChart"), {
+            type: 'bar',
+            data: {
+                labels: ['Present', 'Late', 'Absent'],
+                datasets: [{
+                    label: 'Students',
+                    data: [presentCount, lateCount, absentCount],
+                    backgroundColor: ['#10b981', '#f59e0b', '#f43f5e'],
+                    borderRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+        });
+    }
+}
+
+function renderLive() {
+    const todays = attendance.filter(a => a.date === today());
+    if (byId("liveCountBadge")) byId("liveCountBadge").textContent = `${todays.length} Today`;
+
+    byId("liveTable").innerHTML = todays.map(a => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold text-slate-900">${escapeHTML(a.student)}</td>
+            <td class="p-3 font-mono text-xs">${escapeHTML(a.studentID)}</td>
+            <td class="p-3">${escapeHTML(a.grade)}</td>
+            <td class="p-3">${escapeHTML(a.section)}</td>
+            <td class="p-3">${escapeHTML(a.time)}</td>
+            <td class="p-3">${badgeHTML(a.status)}</td>
+        </tr>
+    `).join("") || `<tr><td colspan="6" class="p-4 text-center text-slate-400">No live attendance activity today.</td></tr>`;
+}
+
+function renderRecords() {
+    const d = byId("recordDate").value || today();
+    const q = val("recordSearch").toLowerCase();
+
+    const filtered = attendance.filter(a => a.date === d && (a.student.toLowerCase().includes(q) || a.studentID.toLowerCase().includes(q)));
+    byId("recordTable").innerHTML = filtered.map(a => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold text-slate-900">${escapeHTML(a.student)}</td>
+            <td class="p-3 font-mono text-xs">${escapeHTML(a.studentID)}</td>
+            <td class="p-3">${escapeHTML(a.date)}</td>
+            <td class="p-3">${escapeHTML(a.time)}</td>
+            <td class="p-3">${badgeHTML(a.status)}</td>
+            <td class="p-3 text-slate-500">${escapeHTML(a.remarks)}</td>
+            <td class="p-3"><button class="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 font-semibold text-xs min-h-0" onclick="changeStatus('${encodeURIComponent(a.studentID)}','${a.date}')">Edit</button></td>
+        </tr>
+    `).join("") || `<tr><td colspan="7" class="p-4 text-center text-slate-400">No records found for this date.</td></tr>`;
+}
+
+function changeStatus(encodedID, dateStr) {
+    const id = decodeURIComponent(encodedID);
+    const rec = attendance.find(a => a.studentID === id && a.date === dateStr);
+    if (!rec) return;
+
+    showModal({
+        title: `Update Status: ${rec.student}`,
+        body: `Select new attendance status for ${rec.date}:`,
+        confirmText: "Save Status",
+        extraHTML: `
+            <select id="modalStatusSelect" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50">
+                <option value="Present" ${rec.status === "Present" ? "selected" : ""}>Present</option>
+                <option value="Late" ${rec.status === "Late" ? "selected" : ""}>Late</option>
+                <option value="Absent" ${rec.status === "Absent" ? "selected" : ""}>Absent</option>
+                <option value="Excused" ${rec.status === "Excused" ? "selected" : ""}>Excused</option>
+            </select>
+        `,
+        onConfirm: () => {
+            const newStatus = val("modalStatusSelect");
+            if (["Present", "Late", "Absent", "Excused"].includes(newStatus)) {
+                rec.status = newStatus;
+                saveData();
+                renderRecords();
+                showToast(`Updated status to ${newStatus}`, "success");
+            }
+        }
+    });
+}
+
+function renderMonthly() {
+    const m = byId("monthFilter").value || today().slice(0, 7);
+    byId("monthlyTable").innerHTML = students.map(s => {
+        const list = attendance.filter(a => a.studentID === s.id && a.date.startsWith(m));
+        return `
+            <tr class="hover:bg-slate-50">
+                <td class="p-3 font-semibold text-slate-900">${escapeHTML(s.name)}</td>
+                <td class="p-3 font-mono text-xs">${escapeHTML(s.id)}</td>
+                <td class="p-3 font-bold text-emerald-600">${list.filter(a => a.status === "Present").length}</td>
+                <td class="p-3 font-bold text-amber-600">${list.filter(a => a.status === "Late").length}</td>
+                <td class="p-3 font-bold text-rose-600">${list.filter(a => a.status === "Absent").length}</td>
+                <td class="p-3 font-bold text-blue-600">${list.filter(a => a.status === "Excused").length}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderReports() {
+    const t = val("reportType");
+    const d = byId("reportDate").value || today();
+    let res = attendance.slice();
+
+    if (t === "daily") res = res.filter(a => a.date === d);
+    if (t === "monthly") res = res.filter(a => a.date.startsWith(d.slice(0, 7)));
+    if (t === "late") res = res.filter(a => a.status === "Late");
+
+    byId("reportResults").innerHTML = `
+        <h4 class="font-bold text-slate-800 mb-3">Report Results (${res.length} Total Logs)</h4>
+        <table class="w-full text-left border-collapse min-w-[480px]">
+            <thead><tr class="bg-slate-50 text-slate-500 text-xs uppercase"><th class="p-3">Name</th><th class="p-3">ID</th><th class="p-3">Date</th><th class="p-3">Time</th><th class="p-3">Status</th></tr></thead>
+            <tbody class="divide-y divide-slate-100 text-sm">${res.map(a => `<tr><td class="p-3 font-semibold">${escapeHTML(a.student)}</td><td class="p-3 font-mono text-xs">${escapeHTML(a.studentID)}</td><td class="p-3">${escapeHTML(a.date)}</td><td class="p-3">${escapeHTML(a.time)}</td><td class="p-3">${badgeHTML(a.status)}</td></tr>`).join("")}</tbody>
+        </table>
+    `;
+}
+
+function renderLate() {
+    byId("lateTable").innerHTML = attendance.filter(a => a.status === "Late").map(a => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold text-slate-900">${escapeHTML(a.student)}</td>
+            <td class="p-3 font-mono text-xs">${escapeHTML(a.studentID)}</td>
+            <td class="p-3">${escapeHTML(a.date)}</td>
+            <td class="p-3">${escapeHTML(a.time)}</td>
+        </tr>
+    `).join("") || `<tr><td colspan="4" class="p-4 text-center text-slate-400">No late students recorded.</td></tr>`;
+}
+
+function renderNotifications() {
+    byId("adminNotifications").innerHTML = notifications.filter(n => n.target === "admin").map(n => `
+        <div class="p-3.5 rounded-xl bg-blue-50 border-l-4 border-blue-600 text-sm">
+            <p class="font-medium text-slate-800">${escapeHTML(n.message)}</p>
+            <span class="text-xs text-slate-500">${n.date} ${n.time}</span>
+        </div>
+    `).join("") || `<p class="text-sm text-slate-400 text-center py-4">No notifications yet.</p>`;
+}
+
+function renderStudentNotifications() {
+    byId("studentNotifications").innerHTML = notifications.filter(n => n.target === "student" && n.studentID === currentUser.id).map(n => `
+        <div class="p-3.5 rounded-xl bg-blue-50 border-l-4 border-blue-600 text-sm">
+            <p class="font-medium text-slate-800">${escapeHTML(n.message)}</p>
+            <span class="text-xs text-slate-500">${n.date} ${n.time}</span>
+        </div>
+    `).join("") || `<p class="text-sm text-slate-400 text-center py-4">No notifications yet.</p>`;
+}
+
+function renderLogs() {
+    byId("logsTable").innerHTML = logs.map(l => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3">${escapeHTML(l.date)}</td>
+            <td class="p-3">${escapeHTML(l.time)}</td>
+            <td class="p-3 font-medium text-slate-800">${escapeHTML(l.activity)}</td>
+            <td class="p-3 text-slate-500">${escapeHTML(l.user)}</td>
+        </tr>
+    `).join("");
+}
+
+function renderStudentHome() {
+    const list = attendance.filter(a => a.studentID === currentUser.id);
+    const p = list.filter(a => a.status === "Present").length;
+    const l = list.filter(a => a.status === "Late").length;
+    byId("studentWelcome").textContent = currentUser.name;
+    byId("myPresent").textContent = p;
+    byId("myLate").textContent = l;
+    byId("myPercentage").textContent = list.length ? Math.round(((p + l) / list.length) * 100) + "%" : "0%";
+
+    const todaysLog = list.find(a => a.date === today());
+    byId("myToday").textContent = todaysLog ? `✅ Today: ${todaysLog.status} (${todaysLog.time})` : "⏳ Not checked in yet today";
+}
+
+function renderMyRecords() {
+    byId("myRecordsTable").innerHTML = attendance.filter(a => a.studentID === currentUser.id).map(a => `
+        <tr class="hover:bg-slate-50">
+            <td class="p-3 font-semibold">${escapeHTML(a.date)}</td>
+            <td class="p-3">${escapeHTML(a.time)}</td>
+            <td class="p-3">${badgeHTML(a.status)}</td>
+            <td class="p-3 text-slate-500">${escapeHTML(a.remarks)}</td>
+        </tr>
+    `).join("") || `<tr><td colspan="4" class="p-4 text-center text-slate-400">No attendance history found.</td></tr>`;
+}
+
+function renderProfile() {
+    const s = getStudent(currentUser.id);
+    if (!s) return;
+    byId("profileInfo").textContent = `ID: ${s.id} • ${s.grade} - ${s.section}`;
+    byId("profileName").value = s.name;
+}
+
+function updateProfile() {
+    const s = getStudent(currentUser.id);
+    const name = val("profileName");
+    if (s && name) {
+        s.name = name;
+        currentUser.name = name;
+        byId("currentUser").textContent = name;
+        saveData();
+        showToast("Profile updated successfully!", "success");
+    }
+}
+
+function saveSettings() {
+    settings.presentTime = val("presentTime") || "07:30";
+    settings.lateTime = val("lateTime") || "07:45";
+    settings.schoolName = val("schoolName") || "Smart Academy";
+    byId("sidebarSchoolName").textContent = settings.schoolName;
+    saveData();
+    showToast("Settings saved!", "success");
+}
+
+function exportCSV(filename, rows) {
+    if (!rows.length) return showToast("No data available to export.", "warning");
+    const keys = Object.keys(rows[0]);
+    const csvContent = [keys.join(","), ...rows.map(r => keys.map(k => `"${String(r[k] || '').replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    showToast(`Exported ${filename}`, "success");
+}
+
+function exportStudents() { exportCSV("students.csv", students); }
+function exportAttendance() { exportCSV("attendance.csv", attendance); }
+
+function backupData() {
+    const dump = { students, attendance, classes, logs, notifications, settings };
+    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "attendance-backup-" + today() + ".json";
+    link.click();
+    showToast("Backup JSON downloaded!", "success");
+}
+
+function restoreData() {
+    const file = byId("restoreFile").files[0];
+    if (!file) return showToast("Please select a JSON backup file.", "warning");
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const dump = JSON.parse(e.target.result);
+            if (dump.students && dump.attendance) {
+                students = dump.students;
+                attendance = dump.attendance;
+                classes = dump.classes || [];
+                logs = dump.logs || [];
+                notifications = dump.notifications || [];
+                settings = dump.settings || settings;
+                saveData();
+                showToast("Data restored! Reloading...", "success");
+                setTimeout(() => location.reload(), 900);
+            } else {
+                showToast("Invalid backup structure.", "error");
+            }
+        } catch (err) {
+            showToast("Invalid JSON backup file.", "error");
+        }
+    };
+    reader.readAsText(file);
+}
+
+function updateClock() {
+    if (byId("clock")) {
+        byId("clock").textContent = new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + " • " + timeNow();
+    }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    pendingAttendanceToken = urlParams.get("attendance") || "";
+    if (pendingAttendanceToken && byId("loginRole")) {
+        byId("loginRole").value = "student";
+    }
+    if (byId("recordDate")) byId("recordDate").value = today();
+    if (byId("reportDate")) byId("reportDate").value = today();
+    if (byId("monthFilter")) byId("monthFilter").value = today().slice(0, 7);
+    if (byId("presentTime")) byId("presentTime").value = settings.presentTime || "07:30";
+    if (byId("lateTime")) byId("lateTime").value = settings.lateTime || "07:45";
+    if (byId("schoolName")) byId("schoolName").value = settings.schoolName || "Smart Academy";
+
+    // Detect non-HTTPS / insecure contexts on mobile where live getUserMedia is restricted
+    if (!window.isSecureContext && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
+        byId("insecureContextBanner")?.classList.remove("hidden");
+    }
+
+    setInterval(updateClock, 1000);
+    updateClock();
+});
+</script>
+</body>
+</html>
